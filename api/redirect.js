@@ -1,7 +1,7 @@
 // api/redirect.js
 export default async function handler(req, res) {
   try {
-    const BLOGGER_TARGET = process.env.BLOGGER_TARGET || 'https://your-blog.blogspot.com';
+    const BLOGGER_TARGET = process.env.BLOGGER_TARGET || 'https://earnwithbarhoola.blogspot.com/p/redirect.html';
 
     const allowed = new Set(['cost','click_id','zoneid','geo','cid','utm_source','utm_medium']);
     const incoming = new URL(req.url, `https://${req.headers.host}`);
@@ -30,6 +30,6 @@ export default async function handler(req, res) {
     return res.redirect(302, final);
   } catch (err) {
     console.error('redirect error', err);
-    return res.redirect(302, process.env.BLOGGER_TARGET || 'https://your-blog.blogspot.com');
+    return res.redirect(302, process.env.BLOGGER_TARGET || 'https://earnwithbarhoola.blogspot.com/p/redirect.html');
   }
 }

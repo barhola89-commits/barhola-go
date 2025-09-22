@@ -1,7 +1,7 @@
 // api/redirect.js
 export default async function handler(req, res) {
   try {
-    const BEMOB_TARGET = process.env.BEMOB_TARGET || 'https://example.com';
+    const BLOGGER_TARGET = process.env.BLOGGER_TARGET || 'https://your-blog.blogspot.com';
 
     const allowed = new Set(['cost','click_id','zoneid','geo','cid','utm_source','utm_medium']);
     const incoming = new URL(req.url, `https://${req.headers.host}`);
@@ -9,7 +9,7 @@ export default async function handler(req, res) {
     for (const [k, v] of incoming.searchParams.entries()) {
       if (allowed.has(k)) params.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
     }
-    const final = params.length ? `${BEMOB_TARGET}${BEMOB_TARGET.includes('?') ? '&' : '?'}${params.join('&')}` : BEMOB_TARGET;
+    const final = params.length ? `${BLOGGER_TARGET}${BLOGGER_TARGET.includes('?') ? '&' : '?'}${params.join('&')}` : BLOGGER_TARGET;
 
     const ua = (req.headers['user-agent'] || '').toLowerCase();
     const botSigns = ['bot','spider','crawl','bingpreview','facebookexternalhit','twitterbot','phantomjs','headless','wget','curl'];
@@ -30,6 +30,6 @@ export default async function handler(req, res) {
     return res.redirect(302, final);
   } catch (err) {
     console.error('redirect error', err);
-    return res.redirect(302, process.env.BEMOB_TARGET || 'https://example.com');
+    return res.redirect(302, process.env.BLOGGER_TARGET || 'https://your-blog.blogspot.com');
   }
 }

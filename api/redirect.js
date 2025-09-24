@@ -1,83 +1,97 @@
-// api/redirect.js - الإصدار المحسن
+// api/redirect.js — Vercel serverless (fast 302 + light security + HMAC + interstitial + optional geo-check)
+// Requires Node 18+ (global fetch available on Vercel)
+import crypto from 'crypto';
+
 const ALLOWED_PARAMS = new Set(['cost','click_id','zoneid','geo','cid','utm_source','utm_medium']);
-const BOT_SIGNS = ['bot','spider','crawl','bingpreview','facebookexternalhit','twitterbot','phantomjs','headless','wget','curl','scraper','selenium','puppeteer','playwright'];
+const BOT_SIGNS = ['bot','spider','curl','wget','phantomjs','headless','selenium','puppeteer','playwright','python-requests','axios','node-fetch'];
+const DC_RANGES = [/^104\.128\./, /^107\.170\./, /^144\.217\./, /^192\.0\.2\./];
 
-// أضف بوتات إضافية
-const ADVANCED_BOT_SIGNS = [
-    'python-requests', 'java/', 'go-http-client', 'node-fetch',
-    'axios/', 'postman', 'insomnia', 'apache-httpclient'
-];
+const BEMOB = process.env.BEMOB_URL || 'https://smz1q.bemobtrcks.com/go/fe89afc8-fe3e-4715-a5b1-a2997d09f905';
+const SECRET = process.env.SECRET_SIGN || 'change_this_secret';
+const GEO_CHECK_ENABLED = (process.env.GEO_CHECK === '1'); // set to '1' to enable geo-check (optional)
+const GEO_API_TIMEOUT_MS = 250; // short timeout to avoid latency
 
-const REDIRECT_TARGET = process.env.REDIRECT_TARGET || 'https://smz1q.bemobtrcks.com/go/fe89afc8-fe3e-4715-a5b1-a2997d09f905';
+function isDatacenterIP(ip = '') {
+  // IMPORTANT: don't treat missing IP as datacenter (fix requested)
+  if (!ip) return false;
+  if (ip === '127.0.0.1' || ip === '::1') return true;
+  return DC_RANGES.some(rx => rx.test(ip));
+}
+
+function signParams(qs) {
+  const h = crypto.createHmac('sha256', SECRET);
+  h.update(qs);
+  return h.digest('hex').slice(0, 20);
+}
+
+function buildFinalUrl(base, params) {
+  const qs = params.toString();
+  return base + (qs ? (base.includes('?') ? '&' : '?') + qs : '');
+}
+
+function quickInterstitialAutoRedirect(finalUrl, reason = '') {
+  // Very lightweight interstitial that runs JS checks and redirects asap.
+  // Keeps latency minimal and preserves visits.
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Continue</title>
+</head>
+<body>
+  <noscript>
+    <meta http-equiv="refresh" content="0;url=${finalUrl}">
+    <p>Please <a href="${finalUrl}">click here to continue</a>.</p>
+  </noscript>
+  <script>
+    try {
+      // basic bot-detect: navigator.webdriver quick check
+      const isHeadless = !!navigator.webdriver;
+      if (!isHeadless) {
+        // micro delay to allow any client-side checks (very small)
+        setTimeout(() => { location.replace(${JSON.stringify(finalUrl)}); }, 120);
+      } else {
+        // if headless detected, don't redirect — show message
+        document.write('<p>Detected automated browser. Request blocked.</p>');
+      }
+    } catch (e) {
+      location.replace(${JSON.stringify(finalUrl)});
+    }
+  </script>
+</body>
+</html>`;
+}
+
+async function getCountryFromIP(ip) {
+  // Optional: simple fetch to ipapi.co (no API key required for basic info) with short timeout.
+  // If you prefer another provider, change the URL and handling accordingly.
+  if (!ip) return null;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), GEO_API_TIMEOUT_MS);
+  try {
+    const res = await fetch(`https://ipapi.co/${encodeURIComponent(ip)}/country/`, { signal: controller.signal });
+    clearTimeout(id);
+    if (!res.ok) return null;
+    const txt = (await res.text()).trim();
+    return txt || null; // returns country code like "EG", "US", etc.
+  } catch (e) {
+    return null;
+  }
+}
+
+// PLACEHOLDER: S3 logging function
+// If you want to enable, uncomment AWS SDK import and implement the function below.
+// Keep it async and non-blocking if you can (fire-and-forget) to avoid latency.
+// Example:
+// import AWS from 'aws-sdk';
+// const s3 = new AWS.S3({ region: process.env.AWS_REGION });
+// async function logToS3(obj) {
+//   const key = `adlogs/${new Date().toISOString().replace(/[:.]/g,'-')}-${Math.random().toString(36).slice(2,8)}.json`;
+//   await s3.putObject({ Bucket: process.env.S3_BUCKET, Key: key, Body: JSON.stringify(obj), ContentType: 'application/json' }).promise();
+// }
 
 export default async function handler(req, res) {
   try {
     const ua = (req.headers['user-agent'] || '').toLowerCase();
-    const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
-    
-    // فلترة بوتات محسنة
-    if (BOT_SIGNS.some(s => ua.includes(s)) || ADVANCED_BOT_SIGNS.some(s => ua.includes(s))) {
-      res.setHeader('Cache-Control', 'public, max-age=300');
-      console.log('Bot blocked:', { ua: ua.substring(0, 100), ip });
-      return res.status(200).send('OK');
-    }
-
-    // تحقق من IP مريب (إضافة جديدة)
-    const suspiciousIPPatterns = [
-        /^104\.128\./, /^107\.170\./, /^144\.217\./, // IP ranges معروفة للبوتات
-        ip.startsWith('192.0.2.'), // IPs تجريبية
-        ip === '127.0.0.1' || ip === 'localhost'
-    ];
-    
-    if (suspiciousIPPatterns.some(pattern => pattern.test && pattern.test(ip) || pattern === ip)) {
-        console.log('Suspicious IP blocked:', { ip, ua: ua.substring(0, 50) });
-        return res.status(200).send('OK');
-    }
-
-    // الباقي كما هو مع تحسين طفيف في التسجيل
-    const referer = req.headers['referer'] || req.headers['referrer'] || '';
-    let finalUrl = REDIRECT_TARGET;
-    const queryString = req.url.includes('?') ? req.url.split('?')[1] : '';
-    const params = new URLSearchParams(queryString || '');
-    const keep = new URLSearchParams();
-    
-    for (const [k, v] of params.entries()) {
-      if (ALLOWED_PARAMS.has(k)) keep.append(k, v);
-    }
-
-    // إضافة صغيرة: تحقق من البيانات المطلوبة
-    if (!keep.get('click_id')) {
-        console.warn('Missing click_id - potential invalid request');
-    }
-
-    if (keep.toString()) finalUrl += (finalUrl.includes('?') ? '&' : '?') + keep.toString();
-
-    // Security headers (كما هي)
-    res.setHeader('Cache-Control', 'public, max-age=60');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Referrer-Policy', 'no-referrer'); // تغيير بسيط لزيادة الخصوصية
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
-
-    // التسجيل المحسن
-    const logObj = {
-      t: new Date().toISOString(),
-      ip,
-      ua_snippet: ua.substring(0, 80), // تقليل حجم اللوج
-      has_referer: !!referer,
-      click_id: keep.get('click_id'),
-      zoneid: keep.get('zoneid'),
-      geo: keep.get('geo'),
-      status: 'redirected'
-    };
-    
-    console.log(JSON.stringify(logObj));
-
-    return res.redirect(302, finalUrl);
-
-  } catch (err) {
-    console.error('Redirect error:', err.message);
-    res.setHeader('Cache-Control', 'no-cache');
-    return res.redirect(302, REDIRECT_TARGET);
-  }
-}
+    const ip = ((req.headers['x-forwarded-for'] || req.socket.remoteAddress)

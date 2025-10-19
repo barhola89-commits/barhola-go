@@ -41,7 +41,7 @@
   </script>
 
   <script>
-    const SMARTLINK = "SMARTLINK_HERE"; // <-- استبدل بالرابط الحقيقي للـ Smartlink
+    const SMARTLINK = "https://otieu.com/4/10063196"; // <-- استبدل بالرابط الحقيقي للـ Smartlink
 
     function goToSmartlink(){
       // optional: attach tracking params here before redirect if لازم

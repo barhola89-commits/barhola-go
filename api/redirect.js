@@ -15,116 +15,74 @@
 <body>
   <div class="box">
     <h2>جاري التحميل…</h2>
-    <p class="small">صفحة الفحص والتحويل — انت بتوصل للتجربة المناسبة حالًا.</p>
+    <p class="small">الصفحة هتتحول للتجربة المناسبة حالًا. لو معلق، اضغط متابعة.</p>
     <a id="continueBtn" class="btn" href="SMARTLINK_HERE" style="display:none">اضغط للمتابعة</a>
-    <p id="status" class="small" style="margin-top:10px">جارٍ التحقق من جودة الترافيك…</p>
+    <p id="status" class="small" style="margin-top:10px">جاري عرض الإعلان...</p>
   </div>
 
-  <!-- ====== 1) Adscore SNIPPET ======
-       استبدل التعليق ده بكود Adscore الرسمي اللي عندك
-       الهدف: يفحص الزائر، لو عدّى الفلترة نقدر نكمل لعرض الإعلان.
-  -->
+  <!-- ========================
+       ضع هنا Monetag interstitial snippet بالظبط
+       مثال: ألصق السكربت اللي Monetag ادهولك هنا
+       المهم: لا تعدّل في السكربت
+     ======================== -->
   <script>
-    /* --- START PLACEHOLDER: Adscore snippet --- 
-       استبدل البلوك ده بالسكربت الحقيقي من Adscore (عادة بيحط window.adscore = {...} أو يستدعي callback)
+    /* Monetag interstitial snippet should go here.
+       Replace this placeholder with the exact Monetag code.
+       If Monetag offers a callback for ad close, use it to call onMonetagAdClosed().
     */
-    (function mockAdscore(){
-      console.log('Adscore placeholder running');
-      // Simulate async check (pass after 800ms)
-      window.adscoreReady = false;
-      setTimeout(function(){
-        window.adscoreReady = true;
-        window.adscorePassed = true; // true = visitor passed, false = suspected bot
-        // call callback if exists
-        if(window.onAdscoreDone) window.onAdscoreDone(window.adscorePassed);
-      }, 800);
-    })();
-    /* --- END PLACEHOLDER --- */
-  </script>
-
-  <!-- ====== 2) Monetag interstitial SNIPPET ======
-       ضع كود Monetag الرسمي هنا (الـ interstitial tag).
-       لو Monetag بيدي callback عند اغلاق الإعلان استعمله.
-  -->
-  <script>
-    /* Monetag placeholder — استبدله بكود Monetag الحقيقي */
     (function mockMonetagInterstitial(){
-      console.log('Monetag interstitial placeholder running (will "close" in 2500ms)');
-      // Simulate that Monetag will show ad only after adscore passed
-      window.__monetagReady = false;
+      // REMOVE this mock when you paste real Monetag code
+      console.log('Monetag placeholder: simulate ad shown and then closed (2.5s)');
       setTimeout(function(){
-        window.__monetagReady = true;
-        // simulate ad closed after shown (callback)
-        setTimeout(function(){
-          // Monetag closed the ad -> fire event/callback
-          if(window.onMonetagAdClosed) window.onMonetagAdClosed();
-          // also postMessage for fallback listeners
-          window.postMessage({monetag:'closed'}, window.location.origin);
-        }, 2500);
-      }, 300); // small delay to simulate ad show time
+        // simulate monetag closed event
+        window.postMessage({monetag:'closed'}, window.location.origin);
+      }, 2500);
     })();
   </script>
 
-  <!-- ====== Main flow logic ====== -->
   <script>
     const SMARTLINK = "SMARTLINK_HERE"; // <-- استبدل بالرابط الحقيقي للـ Smartlink
 
     function goToSmartlink(){
-      // Optional: ممكن تبع tracking params قبل الredirect
+      // optional: attach tracking params here before redirect if لازم
       window.location.href = SMARTLINK;
     }
 
-    // CALLBACKs expected:
-    // - onAdscoreDone(passed) -> adscore finished check
-    // - onMonetagAdClosed() -> monetag ad closed
-
-    // when adscore done:
-    window.onAdscoreDone = function(passed){
-      document.getElementById('status').textContent = passed ? 'الزائر صالح — عرض الإعلان الآن...' : 'الزائر مش صالح — تحويل مباشر...';
-      if(!passed){
-        // لو Adscore رفض الزائر: مش هنعرض إعلانات، نوديهم للـ Smartlink (أو ممكن تبطّله تمامًا)
-        // ممكن تكون سياسة تانية، لكن هنا نعمل redirect فورًا عشان متفقدش impression.
-        goToSmartlink();
-      } else {
-        // لو عدّي الفحص: نسمح لكود Monetag انه يعرض الإعلان (الكود اتحط فوق)
-        // بعد عرض الإعلان Monetag لازم يكالّلنا عبر callback onMonetagAdClosed
-        // لو ما بيدّيش callback، فfallback timers موجودة تحت
-      }
-    };
-
-    // Monetag callback on close:
-    window.onMonetagAdClosed = function(){
+    // handle monetag close (expect monetag to postMessage or call callback)
+    function onMonetagAdClosed(){
+      // safety: mark closed and redirect
       window.__monetagAdClosed = true;
-      // فورًا اعمل redirect للـ Smartlink
       goToSmartlink();
-    };
+    }
 
-    // listen for postMessage fallback
+    // listen for postMessage fallback (many tags use postMessage)
     window.addEventListener('message', function(e){
       try{
-        if(e.data && e.data.monetag === 'closed'){
-          window.onMonetagAdClosed();
+        if(e.origin === window.location.origin && e.data && e.data.monetag === 'closed'){
+          onMonetagAdClosed();
+        } else if(e.data && e.data.monetag === 'closed'){
+          // in case origin differs but message valid
+          onMonetagAdClosed();
         }
-      }catch(err){}
+      } catch(err){}
     }, false);
 
-    // fallback: لو Adscore ما خلصش بعد 2.5s، اعرض زر متابعة
-    setTimeout(function(){
-      if(!window.adscoreReady){
-        document.getElementById('status').textContent = 'تأخر في التحقق — اضغط للمتابعة';
+    // fallback UI/timeouts
+    // show continue button after 4s if nothing happened
+    setTimeout(()=> {
+      if(!window.__monetagAdClosed){
+        document.getElementById('status').textContent = 'اضغط للمتابعة إذا لم يبدأ الإعلان';
         document.getElementById('continueBtn').style.display = 'inline-block';
       }
-    }, 2500);
+    }, 4000);
 
-    // fallback: لو بعد 6s ما فيش ad close أو pass -> نعرض الزر
-    setTimeout(function(){
-      if(!window.__monetagAdClosed && window.adscoreReady){
-        document.getElementById('status').textContent = 'انتهى الوقت — اضغط للمتابعة';
-        document.getElementById('continueBtn').style.display = 'inline-block';
+    // hard fallback redirect after 12s
+    setTimeout(()=> {
+      if(!window.__monetagAdClosed){
+        goToSmartlink();
       }
-    }, 6000);
+    }, 12000);
 
-    // زر المتابعة
     document.getElementById('continueBtn').addEventListener('click', function(e){
       e.preventDefault();
       goToSmartlink();
